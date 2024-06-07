@@ -31,6 +31,7 @@ class BabyMonitorApp:
         self.param_danger_dist = tk.DoubleVar(value=300.0)  # 아기 주변 위험요소 거리 기본값 1m로 설정
         self.enable_pushover = tk.BooleanVar(value=False)
         self.playback_speed = tk.DoubleVar(value=1.0)  # 기본 배속 설정
+        self.camera_index = tk.IntVar(value=2)  # 기본 카메라 인덱스 설정
 
         self.setup_ui()
 
@@ -92,15 +93,18 @@ class BabyMonitorApp:
         tk.Label(settings_grid_frame, text="아기 주변에 위험요소가 얼마나 가까이 있을 때 알림 발송할지:").grid(row=4, column=0, padx=5, pady=5)
         tk.Entry(settings_grid_frame, textvariable=self.param_danger_dist).grid(row=4, column=1, padx=5, pady=5)
 
-        tk.Checkbutton(settings_grid_frame, text="Pushover 알림 전송", variable=self.enable_pushover).grid(row=5, columnspan=2, pady=10)
-        tk.Button(settings_grid_frame, text="Pushover 알림 테스트", command=self.test_pushover).grid(row=6, columnspan=2, pady=10)
+        tk.Label(settings_grid_frame, text="Camera Index:").grid(row=5, column=0, padx=5, pady=5)
+        tk.Entry(settings_grid_frame, textvariable=self.camera_index).grid(row=5, column=1, padx=5, pady=5)
+
+        tk.Checkbutton(settings_grid_frame, text="Pushover 알림 전송", variable=self.enable_pushover).grid(row=6, columnspan=2, pady=10)
+        tk.Button(settings_grid_frame, text="Pushover 알림 테스트", command=self.test_pushover).grid(row=7, columnspan=2, pady=10)
 
         # 배속 슬라이더
-        tk.Label(settings_grid_frame, text="배속:").grid(row=7, column=0, padx=5, pady=5)
-        tk.Scale(settings_grid_frame, from_=0.5, to=2.0, resolution=0.1, orient=tk.HORIZONTAL, variable=self.playback_speed).grid(row=7, column=1, padx=5, pady=5)
+        tk.Label(settings_grid_frame, text="배속:").grid(row=8, column=0, padx=5, pady=5)
+        tk.Scale(settings_grid_frame, from_=0.5, to=2.0, resolution=0.1, orient=tk.HORIZONTAL, variable=self.playback_speed).grid(row=8, column=1, padx=5, pady=5)
 
         # 설정 완료 버튼
-        tk.Button(settings_grid_frame, text="설정 완료", command=self.hide_settings).grid(row=8, columnspan=2, pady=10)
+        tk.Button(settings_grid_frame, text="설정 완료", command=self.hide_settings).grid(row=9, columnspan=2, pady=10)
 
         # 객체 검출 화면 구성
         self.detect_frame.grid_columnconfigure(0, weight=1)
@@ -117,7 +121,7 @@ class BabyMonitorApp:
 
     def show_settings(self):
         self.main_frame.pack_forget()
-        self.adjust_window_size(600, 400)
+        self.adjust_window_size(600, 450)
         self.settings_frame.pack(fill=tk.BOTH, expand=True)
 
     def hide_settings(self):
@@ -171,7 +175,7 @@ class BabyMonitorApp:
         self.update_frame()
 
     def start_camera(self):
-        self.cap = cv2.VideoCapture(2)
+        self.cap = cv2.VideoCapture(self.camera_index.get())
         self.running = True
         self.adjust_window_size(800, 800)
         self.show_detect_frame()
@@ -201,9 +205,9 @@ class BabyMonitorApp:
                 results_posture = model_posture(frame)
                 results_around = model_around(frame)
 
-                centers_head = draw_boxes(frame, results_head, class_names_head, (255, 0, 0))
-                centers_posture = draw_boxes(frame, results_posture, class_names_posture, (0, 255, 0))
-                centers_around = draw_boxes(frame, results_around, class_names_around, (0, 0, 255))
+                centers_head = self.draw_boxes(frame, results_head, class_names_head, (255, 0, 0))
+                centers_posture = self.draw_boxes(frame, results_posture, class_names_posture, (0, 255, 0))
+                centers_around = self.draw_boxes(frame, results_around, class_names_around, (0, 0, 255))
 
                 # 위험물질과 아기 거리 계산
                 distances = []
@@ -334,9 +338,9 @@ class BabyMonitorApp:
         results_around = model_around(img)
 
         # Draw results on the image
-        draw_boxes(img, results_head, class_names_head, (255, 0, 0))  # Red for head model
-        centers_posture = draw_boxes(img, results_posture, class_names_posture, (0, 255, 0))  # Green for posture model
-        centers_around = draw_boxes(img, results_around, class_names_around, (0, 0, 255))  # Blue for around model
+        self.draw_boxes(img, results_head, class_names_head, (255, 0, 0))  # Red for head model
+        centers_posture = self.draw_boxes(img, results_posture, class_names_posture, (0, 255, 0))  # Green for posture model
+        centers_around = self.draw_boxes(img, results_around, class_names_around, (0, 0, 255))  # Blue for around model
 
         for center_p, _ in centers_posture:
             for center_a, label in centers_around:
@@ -360,24 +364,23 @@ class BabyMonitorApp:
         timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
         self.alert_listbox.insert(tk.END, f"[{timestamp}] {message}")
 
-# Function to draw bounding boxes and labels on the image
-def draw_boxes(img, results, class_names, color):
-    centers = []
-    for result in results:
-        boxes = result.boxes
-        for box in boxes:
-            x1, y1, x2, y2 = map(int, box.xyxy[0])
-            label = class_names[int(box.cls[0])]
-            if label == "Person":
-                continue
-            confidence = box.conf[0]
-            cv2.rectangle(img, (x1, y1), (x2, y2), color, 2)
-            label_text = f"{label} {confidence:.2f}"
-            cv2.putText(img, label_text, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-            center_x, center_y = (x1 + x2) // 2, (y1 + y2) // 2
-            centers.append(((center_x, center_y), label))
-            cv2.circle(img, (center_x, center_y), 5, color, -1)
-    return centers
+    def draw_boxes(self, img, results, class_names, color):
+        centers = []
+        for result in results:
+            boxes = result.boxes
+            for box in boxes:
+                x1, y1, x2, y2 = map(int, box.xyxy[0])
+                label = class_names[int(box.cls[0])]
+                if label == "Person":
+                    continue
+                confidence = box.conf[0]
+                cv2.rectangle(img, (x1, y1), (x2, y2), color, 2)
+                label_text = f"{label} {confidence:.2f}"
+                cv2.putText(img, label_text, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+                center_x, center_y = (x1 + x2) // 2, (y1 + y2) // 2
+                centers.append(((center_x, center_y), label))
+                cv2.circle(img, (center_x, center_y), 5, color, -1)
+        return centers
 
 if __name__ == "__main__":
     root = tk.Tk()
