@@ -56,6 +56,7 @@ class BabyMonitorApp:
         self.last_posture_detected_time = None
         self.alert_triggered = False
         self.last_prone_time = None
+        self.last_danger_time = None
 
         # 알림 조건 영역
         self.dangerous_object_alert_triggered = False
@@ -263,6 +264,7 @@ class BabyMonitorApp:
 
             # Dangerous object alert logic
             if distances:
+                self.last_danger_time = current_time
                 for distance in distances:
                     if float(distance) < float(self.param_danger_dist.get()):
                         if not self.dangerous_object_alert_triggered:
@@ -274,7 +276,8 @@ class BabyMonitorApp:
                             self.root.after(5000, self.show_second_alert)
                         break  # Only alert once for the first dangerous object detected
             else:
-                self.dangerous_object_alert_triggered = False
+                if self.last_danger_time and current_time - self.last_danger_time > 1:
+                    self.dangerous_object_alert_triggered = False
         else:
             if self.last_posture_detected_time is not None and current_time - self.last_posture_detected_time > 1:
                 self.no_head_start_time = None
@@ -283,7 +286,10 @@ class BabyMonitorApp:
                 self.dangerous_object_alert_triggered = False
 
     def show_alert(self, message):
-        messagebox.showwarning("Warning", message)
+        alert_window = tk.Toplevel(self.root)
+        alert_window.title("Warning")
+        tk.Label(alert_window, text=message, padx=20, pady=20).pack()
+        alert_window.after(2000, alert_window.destroy)  # 2초 후 창 닫기
 
     def show_second_alert(self):
         message = "Second Alert!"

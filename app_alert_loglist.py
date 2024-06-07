@@ -18,22 +18,6 @@ class_names_head = model_head.names
 class_names_posture = model_posture.names
 class_names_around = model_around.names
 
-# Pushover 알림 전송 함수
-def send_pushover_notification(user_key, api_token, message):
-    url = 'https://api.pushover.net/1/messages.json'
-    payload = {
-        'token': api_token,
-        'user': user_key,
-        'message': message
-    }
-    response = requests.post(url, data=payload)
-    if response.status_code == 200:
-        print('Pushover Success')
-        messagebox.showinfo("Pushover", "Pushover 알림 전송 성공!")
-    else:
-        print('Pushover Fail')
-        messagebox.showerror("Pushover", "Pushover 알림 전송 실패!")
-
 class BabyMonitorApp:
     def __init__(self, root):
         self.root = root
@@ -42,8 +26,8 @@ class BabyMonitorApp:
         # 알림 설정 변수
         self.pushover_user_key = tk.StringVar(value="u3s6ujq92zo5vy6cm6x4wv46dksxm1")
         self.pushover_api_key = tk.StringVar(value='aw9zx586p9rikjgqnsk1dahg2ccwp6')
-        self.param_nohead_sec = tk.IntVar(value=5)  # 기본값 5초로 설정
-        self.param_prone_sec = tk.IntVar(value=5)  # 아기가 배로 누운 시간 기본값 5초로 설정
+        self.param_nohead_sec = tk.IntVar(value=3)  # 기본값 5초로 설정
+        self.param_prone_sec = tk.IntVar(value=3)  # 아기가 배로 누운 시간 기본값 5초로 설정
         self.param_danger_dist = tk.DoubleVar(value=300.0)  # 아기 주변 위험요소 거리 기본값 1m로 설정
         self.enable_pushover = tk.BooleanVar(value=False)
         self.playback_speed = tk.DoubleVar(value=1.0)  # 기본 배속 설정
@@ -56,12 +40,16 @@ class BabyMonitorApp:
         self.last_posture_detected_time = None
         self.alert_triggered = False
         self.last_prone_time = None
+        self.last_danger_time = None
 
         # 알림 조건 영역
         self.dangerous_object_alert_triggered = False
         self.prone_alert_triggered = False
         self.no_head_alert_triggered = False
         self.last_back_time = None
+
+        # Baby detected 로그 추가 플래그
+        self.baby_detected_logged = False
 
     def setup_ui(self):
         # 메인 화면 프레임
@@ -98,7 +86,7 @@ class BabyMonitorApp:
         tk.Label(settings_grid_frame, text="No Head Detection Alert (seconds):").grid(row=2, column=0, padx=5, pady=5)
         tk.Entry(settings_grid_frame, textvariable=self.param_nohead_sec).grid(row=2, column=1, padx=5, pady=5)
 
-        tk.Label(settings_grid_frame, text="아기가 배로 누운지 몇 초 지나서 알람 발송할지:").grid(row=3, column=0, padx=5, pady=5)
+        tk.Label(settings_grid_frame, text="Prone position detect Alert (seconds):").grid(row=3, column=0, padx=5, pady=5)
         tk.Entry(settings_grid_frame, textvariable=self.param_prone_sec).grid(row=3, column=1, padx=5, pady=5)
 
         tk.Label(settings_grid_frame, text="아기 주변에 위험요소가 얼마나 가까이 있을 때 알림 발송할지:").grid(row=4, column=0, padx=5, pady=5)
@@ -115,11 +103,17 @@ class BabyMonitorApp:
         tk.Button(settings_grid_frame, text="설정 완료", command=self.hide_settings).grid(row=8, columnspan=2, pady=10)
 
         # 객체 검출 화면 구성
+        self.detect_frame.grid_columnconfigure(0, weight=1)
+        self.detect_frame.grid_columnconfigure(1, weight=3)
+
         self.stop_button = tk.Button(self.detect_frame, text="탐지 종료", command=self.stop_camera)
-        self.stop_button.pack(side=tk.TOP, pady=5)
+        self.stop_button.grid(row=0, column=0, sticky='nw', padx=5, pady=5)
+
+        self.alert_listbox = tk.Listbox(self.detect_frame, width=50, height=10)
+        self.alert_listbox.grid(row=0, column=1, sticky='ne', padx=5, pady=5)
 
         self.canvas = tk.Canvas(self.detect_frame, width=800, height=600)
-        self.canvas.pack()
+        self.canvas.grid(row=1, column=0, columnspan=2, padx=5, pady=5)
 
     def show_settings(self):
         self.main_frame.pack_forget()
@@ -136,7 +130,26 @@ class BabyMonitorApp:
             user_key = self.pushover_user_key.get()
             api_token = self.pushover_api_key.get()
             message = "Pushover 알림 테스트 메시지입니다."
-            threading.Thread(target=send_pushover_notification, args=(user_key, api_token, message)).start()
+            threading.Thread(target=self.send_pushover_notification, args=(user_key, api_token, message)).start()
+
+    def send_pushover_notification(self, user_key, api_token, message):
+        url = 'https://api.pushover.net/1/messages.json'
+        payload = {
+            'token': api_token,
+            'user': user_key,
+            'message': message
+        }
+        response = requests.post(url, data=payload)
+        if response.status_code == 200:
+            print('Pushover Success')
+            message = f"[Info]Pushover Success!"
+            self.log_alert(message)
+            threading.Thread(target=self.show_alert, args=(message,)).start()
+        else:
+            print('Pushover Fail')
+            message = f"[Critical]Pushover Failed!"
+            self.log_alert(message)
+            threading.Thread(target=self.show_alert, args=(message,)).start()
 
     def open_file(self):
         file_path = filedialog.askopenfilename(filetypes=[("Image files", "*.jpg *.jpeg *.png")])
@@ -153,14 +166,14 @@ class BabyMonitorApp:
     def start_video(self, video_path):
         self.cap = cv2.VideoCapture(video_path)
         self.running = True
-        self.adjust_window_size(800, 600)
+        self.adjust_window_size(800, 800)
         self.show_detect_frame()
         self.update_frame()
 
     def start_camera(self):
         self.cap = cv2.VideoCapture(2)
         self.running = True
-        self.adjust_window_size(800, 600)
+        self.adjust_window_size(800, 800)
         self.show_detect_frame()
         self.update_frame()
 
@@ -216,6 +229,12 @@ class BabyMonitorApp:
         if len(centers_posture) > 0:
             self.last_posture_detected_time = current_time
 
+            # Baby detected 로그 추가
+            if not self.baby_detected_logged:
+                message = "[info]Baby detected!"
+                self.log_alert(message)
+                self.baby_detected_logged = True
+
             # No head detection alert logic
             if len(centers_head) == 0:
                 if self.no_head_start_time is None:
@@ -223,10 +242,11 @@ class BabyMonitorApp:
                 elif current_time - self.no_head_start_time >= self.param_nohead_sec.get():
                     if not self.no_head_alert_triggered:
                         self.no_head_alert_triggered = True
-                        message = f"No head detected for {self.param_nohead_sec.get()} seconds!"
+                        message = f"[Alert]No head detected for {self.param_nohead_sec.get()} seconds!"
+                        self.log_alert(message)
                         threading.Thread(target=self.show_alert, args=(message,)).start()
                         if self.enable_pushover.get():
-                            threading.Thread(target=send_pushover_notification, args=(self.pushover_user_key.get(), self.pushover_api_key.get(), message)).start()
+                            threading.Thread(target=self.send_pushover_notification, args=(self.pushover_user_key.get(), self.pushover_api_key.get(), message)).start()
                         self.root.after(5000, self.show_second_alert)
             else:
                 self.no_head_start_time = None
@@ -239,10 +259,11 @@ class BabyMonitorApp:
                 elif current_time - self.last_prone_time >= self.param_prone_sec.get():
                     if not self.prone_alert_triggered:
                         self.prone_alert_triggered = True
-                        message = f"Prone position detected for {self.param_prone_sec.get()} seconds!"
+                        message = f"[Alert]Prone position detected for {self.param_prone_sec.get()} seconds!"
+                        self.log_alert(message)
                         threading.Thread(target=self.show_alert, args=(message,)).start()
                         if self.enable_pushover.get():
-                            threading.Thread(target=send_pushover_notification, args=(self.pushover_user_key.get(), self.pushover_api_key.get(), message)).start()
+                            threading.Thread(target=self.send_pushover_notification, args=(self.pushover_user_key.get(), self.pushover_api_key.get(), message)).start()
                         self.root.after(5000, self.show_second_alert)
             elif "baby-lying-on-back" in [class_names_posture[int(cls)] for cls in results_posture[0].boxes.cls]:
                 # Track time when baby is lying on back
@@ -263,18 +284,21 @@ class BabyMonitorApp:
 
             # Dangerous object alert logic
             if distances:
+                self.last_danger_time = current_time
                 for distance in distances:
                     if float(distance) < float(self.param_danger_dist.get()):
                         if not self.dangerous_object_alert_triggered:
                             self.dangerous_object_alert_triggered = True
-                            message = f"Dangerous object within {self.param_danger_dist.get()} meters!"
+                            message = f"[Alert]Dangerous object within {self.param_danger_dist.get()}!"
+                            self.log_alert(message)
                             threading.Thread(target=self.show_alert, args=(message,)).start()
                             if self.enable_pushover.get():
-                                threading.Thread(target=send_pushover_notification, args=(self.pushover_user_key.get(), self.pushover_api_key.get(), message)).start()
+                                threading.Thread(target=self.send_pushover_notification, args=(self.pushover_user_key.get(), self.pushover_api_key.get(), message)).start()
                             self.root.after(5000, self.show_second_alert)
                         break  # Only alert once for the first dangerous object detected
             else:
-                self.dangerous_object_alert_triggered = False
+                if self.last_danger_time and current_time - self.last_danger_time > 1:
+                    self.dangerous_object_alert_triggered = False
         else:
             if self.last_posture_detected_time is not None and current_time - self.last_posture_detected_time > 1:
                 self.no_head_start_time = None
@@ -283,13 +307,16 @@ class BabyMonitorApp:
                 self.dangerous_object_alert_triggered = False
 
     def show_alert(self, message):
-        messagebox.showwarning("Warning", message)
+        alert_window = tk.Toplevel(self.root)
+        alert_window.title("Warning")
+        tk.Label(alert_window, text=message, padx=20, pady=20).pack()
+        alert_window.after(2000, alert_window.destroy)  # 2초 후 창 닫기
 
     def show_second_alert(self):
         message = "Second Alert!"
         threading.Thread(target=self.show_alert, args=(message,)).start()
         if self.enable_pushover.get():
-            threading.Thread(target=send_pushover_notification, args=(self.pushover_user_key.get(), self.pushover_api_key.get(), message)).start()
+            threading.Thread(target=self.send_pushover_notification, args=(self.pushover_user_key.get(), self.pushover_api_key.get(), message)).start()
 
     def stop_camera(self):
         self.running = False
@@ -328,6 +355,10 @@ class BabyMonitorApp:
         img_tk = ImageTk.PhotoImage(img_pil)
         self.canvas.create_image(0, 0, anchor=tk.NW, image=img_tk)
         self.canvas.image = img_tk
+
+    def log_alert(self, message):
+        timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+        self.alert_listbox.insert(tk.END, f"[{timestamp}] {message}")
 
 # Function to draw bounding boxes and labels on the image
 def draw_boxes(img, results, class_names, color):
