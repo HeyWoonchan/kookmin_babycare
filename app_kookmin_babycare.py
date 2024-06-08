@@ -24,8 +24,8 @@ class BabyMonitorApp:
         self.root.title("Baby Monitor App")
 
         # 알림 설정 변수
-        self.pushover_user_key = tk.StringVar(value="u3s6ujq92zo5vy6cm6x4wv46dksxm1")
-        self.pushover_api_key = tk.StringVar(value='aw9zx586p9rikjgqnsk1dahg2ccwp6')
+        self.pushover_user_key = tk.StringVar(value="u3s6---zo5vy6cm6x4wv46dksxm1")
+        self.pushover_api_key = tk.StringVar(value='aw9zx---p9rikjgqnsk1dahg2ccwp6')
         self.param_nohead_sec = tk.IntVar(value=3)  # 기본값 5초로 설정
         self.param_prone_sec = tk.IntVar(value=3)  # 아기가 배로 누운 시간 기본값 5초로 설정
         self.param_danger_dist = tk.DoubleVar(value=300.0)  # 아기 주변 위험요소 거리 기본값 1m로 설정
