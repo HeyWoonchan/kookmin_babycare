@@ -52,6 +52,8 @@ class BabyMonitorApp:
         # Baby detected 로그 추가 플래그
         self.baby_detected_logged = False
 
+
+
     def setup_ui(self):
         # 메인 화면 프레임
         self.main_frame = tk.Frame(self.root)
@@ -114,10 +116,16 @@ class BabyMonitorApp:
         self.stop_button.grid(row=0, column=0, sticky='nw', padx=5, pady=5)
 
         self.alert_listbox = tk.Listbox(self.detect_frame, width=50, height=10)
-        self.alert_listbox.grid(row=0, column=1, sticky='ne', padx=5, pady=5)
+        self.alert_listbox.grid(row=0, column=2, sticky='ne', padx=5, pady=5)  # 로그 영역
 
         self.canvas = tk.Canvas(self.detect_frame, width=800, height=600)
-        self.canvas.grid(row=1, column=0, columnspan=2, padx=5, pady=5)
+        self.canvas.grid(row=1, column=0, columnspan=3, padx=5, pady=5)
+
+        self.posture_label = tk.Label(self.detect_frame, text="현재 자세: ")
+        self.posture_label.grid(row=0, column=1, sticky='nw', padx=5, pady=5)
+
+        self.head_label = tk.Label(self.detect_frame, text="얼굴 인식 여부: ")
+        self.head_label.grid(row=0, column=1, sticky='ne', padx=5, pady=5)
 
     def show_settings(self):
         self.main_frame.pack_forget()
@@ -241,6 +249,7 @@ class BabyMonitorApp:
 
             # No head detection alert logic
             if len(centers_head) == 0:
+                self.head_label.config(text="얼굴 인식 여부: 없음")
                 if self.no_head_start_time is None:
                     self.no_head_start_time = current_time
                 elif current_time - self.no_head_start_time >= self.param_nohead_sec.get():
@@ -250,14 +259,18 @@ class BabyMonitorApp:
                         self.log_alert(message)
                         threading.Thread(target=self.show_alert, args=(message,)).start()
                         if self.enable_pushover.get():
-                            threading.Thread(target=self.send_pushover_notification, args=(self.pushover_user_key.get(), self.pushover_api_key.get(), message)).start()
+                            threading.Thread(target=self.send_pushover_notification, \
+                                             args=(self.pushover_user_key.get(), \
+                                                   self.pushover_api_key.get(), message)).start()
                         self.root.after(5000, self.show_second_alert)
             else:
+                self.head_label.config(text="얼굴 인식 여부: 있음")
                 self.no_head_start_time = None
                 self.no_head_alert_triggered = False
 
             # Prone position alert logic
             if "baby-lying-on-stomach" in [class_names_posture[int(cls)] for cls in results_posture[0].boxes.cls]:
+                self.posture_label.config(text="현재 자세: 엎드림")
                 if self.last_prone_time is None or current_time - self.last_prone_time <= 0.1:
                     self.last_prone_time = current_time
                 elif current_time - self.last_prone_time >= self.param_prone_sec.get():
@@ -267,9 +280,11 @@ class BabyMonitorApp:
                         self.log_alert(message)
                         threading.Thread(target=self.show_alert, args=(message,)).start()
                         if self.enable_pushover.get():
-                            threading.Thread(target=self.send_pushover_notification, args=(self.pushover_user_key.get(), self.pushover_api_key.get(), message)).start()
+                            threading.Thread(target=self.send_pushover_notification, \
+                                             args=(self.pushover_user_key.get(), self.pushover_api_key.get(), message)).start()
                         self.root.after(5000, self.show_second_alert)
             elif "baby-lying-on-back" in [class_names_posture[int(cls)] for cls in results_posture[0].boxes.cls]:
+                self.posture_label.config(text="현재 자세: 눕기")
                 # Track time when baby is lying on back
                 if self.last_back_time is None:
                     self.last_back_time = current_time
@@ -278,6 +293,7 @@ class BabyMonitorApp:
                     self.last_prone_time = None
                     self.prone_alert_triggered = False
             else:
+                self.posture_label.config(text="현재 자세: 알 수 없음")
                 self.last_back_time = None
                 if self.last_prone_time is not None and current_time - self.last_prone_time <= 0.1:
                     # Keep last_prone_time as it is
@@ -297,7 +313,9 @@ class BabyMonitorApp:
                             self.log_alert(message)
                             threading.Thread(target=self.show_alert, args=(message,)).start()
                             if self.enable_pushover.get():
-                                threading.Thread(target=self.send_pushover_notification, args=(self.pushover_user_key.get(), self.pushover_api_key.get(), message)).start()
+                                threading.Thread(target=self.send_pushover_notification, \
+                                                 args=(self.pushover_user_key.get(), \
+                                                self.pushover_api_key.get(), message)).start()
                             self.root.after(5000, self.show_second_alert)
                         break  # Only alert once for the first dangerous object detected
             else:
@@ -305,6 +323,7 @@ class BabyMonitorApp:
                     self.dangerous_object_alert_triggered = False
         else:
             if self.last_posture_detected_time is not None and current_time - self.last_posture_detected_time > 1:
+                self.posture_label.config(text="현재 자세: 아이 인식 불가")
                 self.no_head_start_time = None
                 self.no_head_alert_triggered = False
                 self.prone_alert_triggered = False
