@@ -2,7 +2,7 @@
 
 <h3>국민대학교</h3><br>
 2024-1 전자공학종합설계(정성희 교수)<br>
-3조 기운찬, 권수정
+3조 기운찬, 권수정<br><br>
 
 How to run:<br>
  run app_kookmin_babycare.py
